@@ -1,0 +1,97 @@
+version: 2
+
+models:
+  - name: int_report_drugs
+    description: >
+      Intermediate model that flattens the nested drug array from FAERS reports. 
+      Produces one row per drug per report, including drug characterization and dosage info.
+    columns:
+      - name: report_drug_id
+        description: Primary key for drugs in reports. Composite of report_id and drug sequence.
+        tests:
+          - unique:
+              config:
+                where: "src_ld_ts > '1900-01-01'"
+          - not_null
+
+      - name: report_id
+        description: Foreign key to stg_faers_reports.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_faers_reports')
+              field: report_id
+
+      - name: drug_name
+        description: The name of the drug as reported (e.g., brand name or generic).
+        tests:
+          - not_null
+
+      - name: drug_characterization
+        description: >
+          Characterization of the drug's role in the event: 
+          1=Suspect, 2=Concomitant, 3=Interaction.
+        tests:
+          - accepted_values:
+              values: [1, 2, 3]
+
+      - name: drug_sequence
+        description: The position of the drug in the report's drug list.
+        tests:
+          - not_null
+
+  - name: int_report_reactions
+    description: >
+      Intermediate model that flattens the nested adverse reaction array from FAERS reports.
+      One row per reaction term per report.
+    columns:
+      - name: report_reaction_id
+        description: Unique identifier for each reaction in a report.
+        tests:
+          - unique:
+              config:
+                where: "src_ld_ts > '1900-01-01'"
+          - not_null
+
+      - name: report_id
+        description: Reference to the parent safety report.
+        tests:
+          - not_null
+
+      - name: reaction_term
+        description: The adverse event term (typically MedDRA Preferred Term).
+        tests:
+          - not_null
+
+      - name: reaction_sequence
+        description: Order of the reaction in the report.
+        tests:
+          - not_null
+
+  - name: int_drug_reaction_pairs
+    description: >
+      Matrix model creating all possible drug-reaction combinations within each report.
+      This is the foundation for disproportionality calculations (PRR/ROR).
+    columns:
+      - name: drug_reaction_pair_id
+        description: Unique key for the drug-reaction pair within a specific report.
+        tests:
+          - unique:
+              config:
+                where: "src_ld_ts > '1900-01-01'"
+          - not_null
+
+      - name: report_id
+        description: The source report ID.
+        tests:
+          - not_null
+
+      - name: drug_name
+        description: Name of the drug in the pair.
+        tests:
+          - not_null
+
+      - name: reaction_term
+        description: Term for the adverse reaction in the pair.
+        tests:
+          - not_null

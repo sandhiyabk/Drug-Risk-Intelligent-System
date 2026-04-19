@@ -1,21 +1,34 @@
 """
 FAERS JSON Ingestion: FastAPI + Snowflake Connector
-Phase 1: Upload local JSON file to Snowflake Stage and load to Raw Table
+Refactored for PEP 8 compliance, advanced error handling, and structured logging.
 """
 
 import os
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 
 import snowflake.connector
-from snowflake.connector import (
-    dict_to_connection as dict2conn,
-    Error as SnowflakeError,
-)
+from snowflake.connector import Error as SnowflakeError
 from pydantic import BaseModel
 from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
+
+# Logging Configuration
+LOG_DIR = Path("logs")
+LOG_DIR.mkdir(exist_ok=True)
+LOG_FILE = LOG_DIR / "ingestion.log"
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[
+        logging.FileHandler(LOG_FILE),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger("faers_ingestion")
 
 # Configuration from environment
 SNOWFLAKE_CONFIG = {
@@ -23,18 +36,22 @@ SNOWFLAKE_CONFIG = {
     "password": os.getenv("SNOWFLAKE_PASSWORD"),
     "account": os.getenv("SNOWFLAKE_ACCOUNT"),
     "warehouse": os.getenv("SNOWFLAKE_WAREHOUSE", "DRUG_RISK_WH"),
-    "database": "DRUG_INTEL_DB",
-    "schema": "RAW",
-    "role": "DATA_ENG_ROLE",
+    "database": os.getenv("SNOWFLAKE_DATABASE", "DRUG_INTEL_DB"),
+    "schema": os.getenv("SNOWFLAKE_SCHEMA", "RAW"),
+    "role": os.getenv("SNOWFLAKE_ROLE", "DATA_ENG_ROLE"),
 }
 
 # FAERS JSON file storage directory
 FAERS_UPLOAD_DIR = Path(os.getenv("FAERS_UPLOAD_DIR", "./faers_data"))
 
-app = FastAPI(title="Drug Risk Intelligence Pipeline - FAERS Ingestion")
+app = FastAPI(
+    title="Drug Risk Intelligence Pipeline - FAERS Ingestion",
+    version="1.1.0"
+)
 
 
 class IngestionResponse(BaseModel):
+    """Model for ingestion response."""
     file_name: str
     status: str
     file_id: Optional[int] = None
@@ -42,40 +59,44 @@ class IngestionResponse(BaseModel):
 
 
 def get_snowflake_connection():
-    """Create Snowflake connection with error handling."""
+    """Create Snowflake connection with specific error handling."""
     try:
+        logger.info("Attempting to connect to Snowflake...")
         conn = snowflake.connector.connect(**SNOWFLAKE_CONFIG)
+        logger.info("Snowflake connection established successfully.")
         return conn
     except SnowflakeError as e:
-        raise HTTPException(status_code=500, detail=f"Snowflake connection failed: {e}")
+        logger.error(f"Snowflake connection failed: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database connection error: {e}"
+        )
 
 
 def upload_to_stage(conn, file_path: Path, file_name: str) -> bool:
     """
     Upload a local JSON file to Snowflake internal stage.
-    Uses PUT command for internal stage upload.
     """
     stage_name = "FAERS_INTERNAL_STAGE"
-    table_name = "FAERS_RAW_DATA"
-
     try:
         cursor = conn.cursor()
+        logger.info(f"Uploading {file_name} to @%{stage_name}...")
 
-        # Step 1: Upload file to internal stage
-        put_sql = f"""
-        PUT 'file://{file_path.as_posix()}' @%{stage_name}/{file_name}
-        AUTO_COMPRESS=FALSE
-        OVERWRITE=TRUE
-        """
+        # Snowflake PUT command
+        put_sql = f"PUT 'file://{file_path.as_posix()}' @%{stage_name}/{file_name} AUTO_COMPRESS=FALSE OVERWRITE=TRUE"
         cursor.execute(put_sql)
         put_result = cursor.fetchone()
         cursor.close()
 
         if put_result and put_result[3] == "UPLOADED":
+            logger.info(f"Successfully uploaded {file_name} to stage.")
             return True
+        
+        logger.warning(f"Upload result for {file_name}: {put_result}")
         return False
 
     except SnowflakeError as e:
+        logger.error(f"Failed to upload {file_name} to stage: {e}")
         raise HTTPException(status_code=500, detail=f"Stage upload failed: {e}")
 
 
@@ -86,214 +107,140 @@ def load_to_raw_table(
     table_name: str = "FAERS_RAW_DATA",
 ) -> int:
     """
-    Load JSON data from stage into raw table.
-    Returns the file_id assigned by Snowflake.
+    Load JSON data from stage into raw table using COPY INTO.
     """
-    cursor = conn.cursor()
-
     try:
-        # Step 2: Copy into raw table using COPY INTO
+        cursor = conn.cursor()
+        logger.info(f"Loading {file_name} from stage into {table_name}...")
+
         copy_sql = f"""
-        COPY INTO {table_name} (
-            FILE_NAME,
-            INGESTION_TIMESTAMP,
-            RAW_JSON,
-            FILE_STATUS
-        )
+        COPY INTO {table_name} (FILE_NAME, INGESTION_TIMESTAMP, RAW_JSON, FILE_STATUS)
         FROM (
-            SELECT
-                '{file_name}' AS FILE_NAME,
-                CURRENT_TIMESTAMP() AS INGESTION_TIMESTAMP,
-                $1 AS RAW_JSON,
-                'PROCESSED' AS FILE_STATUS
+            SELECT '{file_name}', CURRENT_TIMESTAMP(), $1, 'PROCESSED'
             FROM @%{source_stage}/{file_name}
         )
         FILE_FORMAT = (FORMAT_NAME = 'FAERS_JSON_FORMAT')
         ON_ERROR = 'SKIP_FILE'
         """
         cursor.execute(copy_sql)
-        copy_result = cursor.fetchone()
         cursor.close()
 
-        # Get the file_id from the table
+        # Retrieve generated FILE_ID
         cursor = conn.cursor()
         cursor.execute(
-            f"SELECT FILE_ID FROM {table_name} WHERE FILE_NAME = '{file_name}' ORDER BY FILE_ID DESC LIMIT 1"
+            f"SELECT FILE_ID FROM {table_name} WHERE FILE_NAME = %s ORDER BY FILE_ID DESC LIMIT 1",
+            (file_name,)
         )
         row = cursor.fetchone()
         cursor.close()
 
-        if row:
-            return row[0]
-        return 0
+        file_id = row[0] if row else 0
+        logger.info(f"Load complete. Assigned File ID: {file_id}")
+        return file_id
 
     except SnowflakeError as e:
+        logger.error(f"Failed to load {file_name} into table: {e}")
         raise HTTPException(status_code=500, detail=f"Table load failed: {e}")
 
 
 async def process_file(file_path: Path, file_name: str) -> IngestionResponse:
-    """
-    Process a single FAERS JSON file: upload to stage, then load to table.
-    """
+    """ Orchestrates the upload and load process for a single file. """
     conn = get_snowflake_connection()
-
     try:
-        # Validate JSON file
+        # Validate JSON
         with open(file_path, "r", encoding="utf-8") as f:
-            json.load(f)  # Validate JSON is parseable
+            json.load(f)
 
-        # Upload to stage
-        upload_success = upload_to_stage(conn, file_path, file_name)
-        if not upload_success:
+        if not upload_to_stage(conn, file_path, file_name):
             return IngestionResponse(
                 file_name=file_name,
                 status="FAILED",
-                message="Failed to upload to stage",
+                message="File upload to internal stage failed."
             )
 
-        # Load to raw table
         file_id = load_to_raw_table(conn, file_name)
-
         return IngestionResponse(
             file_name=file_name,
             status="SUCCESS",
             file_id=file_id,
-            message="File ingested successfully into FAERS_RAW_DATA",
+            message=f"Ingested into Snowflake with ID {file_id}"
         )
-
+    except json.JSONDecodeError as e:
+        logger.error(f"Invalid JSON content in {file_name}: {e}")
+        return IngestionResponse(
+            file_name=file_name,
+            status="FAILED",
+            message=f"Invalid JSON structure: {e}"
+        )
+    except Exception as e:
+        logger.exception(f"Unexpected error processing {file_name}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
 
 
-def cleanup_staged_file(conn, file_name: str, stage_name: str = "FAERS_INTERNAL_STAGE"):
-    """Remove file from stage after successful load."""
-    cursor = conn.cursor()
-    try:
-        remove_sql = f"REMOVE @{stage_name}/{file_name}"
-        cursor.execute(remove_sql)
-    finally:
-        cursor.close()
-
-
 @app.get("/")
 def read_root():
-    return {"service": "FAERS Ingestion API", "version": "1.0.0"}
+    """Service metadata endpoint."""
+    return {"service": "FAERS Ingestion API", "version": "1.1.0", "status": "active"}
 
 
 @app.post("/ingest", response_model=IngestionResponse)
-async def ingest_faers_file(
-    background_tasks: BackgroundTasks,
-    file: UploadFile = File(...),
-):
-    """
-    Upload and ingest a FAERS JSON file.
-    - Validates JSON structure
-    - Uploads to Snowflake internal stage
-    - Loads into FAERS_RAW_DATA table
-    """
-    # Validate file extension
+async def ingest_faers_file(file: UploadFile = File(...)):
+    """ Endpoint to upload and ingest a single FAERS JSON file. """
     if not file.filename.endswith(".json"):
-        raise HTTPException(status_code=400, detail="Only JSON files are accepted")
+        raise HTTPException(status_code=400, detail="Only .json files are supported.")
 
-    # Create uploads directory if not exists
     FAERS_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-
-    # Save uploaded file
     file_path = FAERS_UPLOAD_DIR / file.filename
 
     try:
         content = await file.read()
-        # Validate JSON before saving
-        json.loads(content)
+        json.loads(content)  # Validation
 
-        # Save to local directory
         with open(file_path, "wb") as f:
             f.write(content)
+        
+        logger.info(f"Received file: {file.filename}")
+        result = await process_file(file_path, file.filename)
+        return result
 
-    except json.JSONDecodeError as e:
-        raise HTTPException(status_code=400, detail=f"Invalid JSON: {e}")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"File save failed: {e}")
-
-    # Process file
-    result = await process_file(file_path, file.filename)
-    result.message
-
-    # Cleanup local file after processing
-    try:
-        file_path.unlink()
-    except OSError:
-        pass  # Best effort cleanup
-
-    return result
+        logger.error(f"Ingestion endpoint failed for {file.filename}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if file_path.exists():
+            file_path.unlink()
 
 
-@app.post("/ingest/batch", response_model=list[IngestionResponse])
-async def ingest_batch(
-    background_tasks: BackgroundTasks,
-    files: list[UploadFile] = File(...),
-):
-    """
-    Batch ingest multiple FAERS JSON files.
-    """
+@app.post("/ingest/batch", response_model=List[IngestionResponse])
+async def ingest_batch(files: List[UploadFile] = File(...)):
+    """ Batch ingestion endpoint for multiple files. """
     results = []
-
     for file in files:
-        # Check extension
-        if not file.filename.endswith(".json"):
-            results.append(
-                IngestionResponse(
-                    file_name=file.filename,
-                    status="FAILED",
-                    message="Only JSON files are accepted",
-                )
-            )
-            continue
-
-        # Save file
-        file_path = FAERS_UPLOAD_DIR / file.filename
-
         try:
-            content = await file.read()
-            json.loads(content)  # Validate
-
-            with open(file_path, "wb") as f:
-                f.write(content)
-
-            # Process
-            result = await process_file(file_path, file.filename)
-            results.append(result)
-
-            # Cleanup
-            try:
-                file_path.unlink()
-            except OSError:
-                pass
-
-        except Exception as e:
-            results.append(
-                IngestionResponse(
-                    file_name=file.filename,
-                    status="FAILED",
-                    message=str(e),
-                )
-            )
-
+            res = await ingest_faers_file(file)
+            results.append(res)
+        except HTTPException as e:
+            results.append(IngestionResponse(
+                file_name=file.filename,
+                status="ERROR",
+                message=e.detail
+            ))
     return results
 
 
 @app.get("/health")
 def health_check():
-    """Health check endpoint."""
+    """ Detailed health check including Snowflake connectivity. """
     try:
         conn = get_snowflake_connection()
         conn.close()
-        return {"status": "healthy", "snowflake": "connected"}
+        return {"status": "healthy", "snowflake": "connected", "timestamp": datetime.now().isoformat()}
     except Exception as e:
-        return {"status": "unhealthy", "snowflake": "disconnected", "error": str(e)}
+        return {"status": "unhealthy", "error": str(e)}
 
 
 if __name__ == "__main__":
     import uvicorn
-
     uvicorn.run(app, host="0.0.0.0", port=8000)

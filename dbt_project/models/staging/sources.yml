@@ -1,0 +1,50 @@
+version: 2
+
+sources:
+  - name: raw
+    description: Raw FDA FAERS (Adverse Event Reporting System) data ingested from JSON files.
+    database: DRUG_INTEL_DB
+    schema: RAW
+    loader: FastAPI Ingestion Pipeline
+
+    tables:
+      - name: FAERS_RAW_DATA
+        description: >
+          Core table containing raw JSON safety reports. 
+          Each record represents a file or a batch of reports stored in a VARIANT column.
+        
+        freshness:
+          warn_after: {count: 24, period: hour}
+          error_after: {count: 48, period: hour}
+        loaded_at_field: INGESTION_TIMESTAMP
+
+        columns:
+          - name: FILE_ID
+            description: Auto-incrementing unique identifier for each ingested file.
+            tests:
+              - unique
+              - not_null
+
+          - name: FILE_NAME
+            description: The name of the source JSON file uploaded from the FDA API.
+            tests:
+              - not_null
+
+          - name: INGESTION_TIMESTAMP
+            description: The timestamp when the data was successfully loaded into Snowflake.
+            tests:
+              - not_null
+              - dbt_utils.recency_not_in_future:
+                  datepart: day
+                  interval: 1
+
+          - name: RAW_JSON
+            description: Full safety report content in JSON (VARIANT) format.
+            tests:
+              - not_null
+
+          - name: FILE_STATUS
+            description: Status of the ingestion process (PENDING, PROCESSED).
+            tests:
+              - accepted_values:
+                  values: ['PENDING', 'PROCESSED']

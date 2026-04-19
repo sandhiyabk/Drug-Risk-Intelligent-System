@@ -99,16 +99,18 @@ ror_calc AS (
         d.D_count,
         
         -- ROR = (A/B) / (C/D) = (A*D) / (B*C)
-        -- Handle nulls and divide by zero
         CASE
             WHEN b.B_count > 0 AND c.C_count > 0 AND d.D_count > 0 
             THEN (a.A_count * d.D_count) * 1.0 / (b.B_count * c.C_count)
-            WHEN b.B_count = 0 AND a.A_count > 0 AND c.C_count > 0 
-            THEN NULL  -- Cannot calculate (infinite)
-            WHEN c.C_count = 0 AND a.A_count > 0 AND b.B_count > 0 
-            THEN NULL  -- Cannot calculate
             ELSE NULL
-        END AS ror_value,
+        END AS ror,
+
+        -- PRR = (A / (A+B)) / (C / (C+D))
+        CASE
+            WHEN (a.A_count + b.B_count) > 0 AND (c.C_count + d.D_count) > 0
+            THEN (a.A_count * 1.0 / (a.A_count + b.B_count)) / (c.C_count * 1.0 / (c.C_count + d.D_count))
+            ELSE NULL
+        END AS prr,
 
         -- Simplified ROR when denominator > 0
         CASE
@@ -131,18 +133,19 @@ signals AS (
         ror.B_count,
         ror.C_count,
         ror.D_count,
-        ror.ror_value AS ror,
+        ror.ror AS ror,
+        ror.prr AS prr,
         ror.ror_simple AS ror_simple,
 
         CASE
-            WHEN ror.ror_value > 2.0 THEN 'HIGH'
-            WHEN ror.ror_value > 1.5 THEN 'ELEVATED'
-            WHEN ror.ror_value > 1.0 THEN 'ELEVATED'
+            WHEN ror.prr > 2.0 THEN 'HIGH'
+            WHEN ror.prr > 1.5 THEN 'ELEVATED'
+            WHEN ror.prr > 1.0 THEN 'ELEVATED'
             ELSE 'BASELINE'
         END AS signal_strength,
 
         CASE
-            WHEN ror.ror_value > 2.0 
+            WHEN ror.prr > 2.0 
                  AND ror.A_count >= 50
             THEN TRUE
             ELSE FALSE
@@ -162,6 +165,7 @@ SELECT
     C_count,
     D_count,
     ror,
+    prr,
     ror_simple,
     signal_strength,
     is_significant_signal,

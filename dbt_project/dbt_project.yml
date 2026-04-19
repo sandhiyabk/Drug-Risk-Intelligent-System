@@ -16,10 +16,14 @@ models:
   drug_risk_pipeline:
     staging:
       +schema: STAGING
-      +materialized: table
+      +materialized: incremental
     intermediate:
       +schema: STAGING
       +materialized: incremental
+    analytics:
+      +schema: ANALYTICS
+      +materialized: table  # Keep as table for dashboard performance, but could be incremental if partitioned by date.
+
 
 seeds:
   +schema: STAGING
