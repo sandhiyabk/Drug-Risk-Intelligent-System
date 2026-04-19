@@ -12,13 +12,13 @@ from snowflake.connector import pandas
 from fastapi.middleware.cors import CORSMiddleware
 
 SNOWFLAKE_CONFIG = {
-    "user": "SANDHIYABK",
-    "password": "k66T4jKv_LQDHXe",
-    "account": "rwcfeut-wb78109",
-    "warehouse": "COMPUTE_WH",
-    "database": "ONCOLOGY_DB",
-    "schema": "GOLD",
-    "role": "ACCOUNTADMIN",
+    "user": os.getenv("SNOWFLAKE_USER"),
+    "password": os.getenv("SNOWFLAKE_PASSWORD"),
+    "account": os.getenv("SNOWFLAKE_ACCOUNT"),
+    "warehouse": os.getenv("SNOWFLAKE_WAREHOUSE", "COMPUTE_WH"),
+    "database": os.getenv("SNOWFLAKE_DATABASE", "ONCOLOGY_DB"),
+    "schema": os.getenv("SNOWFLAKE_SCHEMA", "GOLD"),
+    "role": os.getenv("SNOWFLAKE_ROLE", "ACCOUNTADMIN"),
 }
 
 app = FastAPI(
