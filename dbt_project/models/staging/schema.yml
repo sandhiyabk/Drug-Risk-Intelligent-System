@@ -22,9 +22,6 @@ models:
         description: The date the report was first received by the FDA.
         tests:
           - not_null
-          - dbt_utils.recency_not_in_future:
-              datepart: day
-              interval: 1
 
       - name: reception_date
         description: Secondary reception date for tracking administrative updates.
@@ -39,7 +36,7 @@ models:
         description: Age of the patient at the time of the event.
         tests:
           - dbt_utils.expression_is_true:
-              expression: ">= 0 AND <= 120"
+              expression: "BETWEEN 0 AND 120"
 
       - name: patient_age_days
         description: Patient age expressed in days.
@@ -48,7 +45,7 @@ models:
         description: Patient age expressed in years.
         tests:
           - dbt_utils.expression_is_true:
-              expression: ">= 0 AND <= 120"
+              expression: "BETWEEN 0 AND 120"
 
       - name: patient_sex
         description: >

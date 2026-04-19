@@ -38,7 +38,7 @@ reactions_raw AS (
         f.VALUE:reactionmeddrapt::VARCHAR AS reaction_term,
         f.VALUE:reactionmeddrallt::VARCHAR AS reaction_term_allt,
         f.VALUE:reactionoutcome[0].codingSystem::VARCHAR AS outcome_coding_system,
-        TRY_CAST(f.VALUE:reactionoutcome[0].value AS NUMBER(2, 0)) AS outcome_code,
+        f.VALUE:reactionoutcome[0].value::NUMBER(2, 0) AS outcome_code,
 
         f.INDEX AS reaction_sequence,
 
@@ -46,11 +46,9 @@ reactions_raw AS (
 
     FROM {{ source('raw', 'FAERS_RAW_DATA') }} r
     INNER JOIN source s
-        ON TRY_CAST(
-            COALESCE(
-                r.RAW_JSON:safetyreport[0].safetyreportid,
-                r.RAW_JSON:safetyreport[0].id
-            ) AS VARCHAR
+        ON COALESCE(
+            r.RAW_JSON:safetyreport[0].safetyreportid::VARCHAR,
+            r.RAW_JSON:safetyreport[0].id::VARCHAR
         ) = s.report_id
 
     CROSS JOIN LATERAL FLATTEN(

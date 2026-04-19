@@ -1,6 +1,7 @@
 name: drug_risk_pipeline
 version: '1.0.0'
 config-version: 2
+profile: drug_risk_pipeline
 
 vars:
   snowflake_warehouse: DRUG_RISK_WH

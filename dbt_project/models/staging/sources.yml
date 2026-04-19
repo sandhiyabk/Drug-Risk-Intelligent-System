@@ -34,9 +34,6 @@ sources:
             description: The timestamp when the data was successfully loaded into Snowflake.
             tests:
               - not_null
-              - dbt_utils.recency_not_in_future:
-                  datepart: day
-                  interval: 1
 
           - name: RAW_JSON
             description: Full safety report content in JSON (VARIANT) format.

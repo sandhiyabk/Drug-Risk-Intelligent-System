@@ -13,6 +13,7 @@
 
 WITH drug_reaction_pairs AS (
     SELECT
+        report_id,
         drug_name,
         reaction_term,
         src_ld_ts

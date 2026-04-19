@@ -13,9 +13,9 @@ drug_risk_pipeline:
       user: "{{ env_var('SNOWFLAKE_USER') }}"
       password: "{{ env_var('SNOWFLAKE_PASSWORD') }}"
       role: ACCOUNTADMIN
-      database: ONCOLOGY_DB
-      warehouse: COMPUTE_WH
-      schema: GOLD
+      database: DRUG_INTEL_DB
+      warehouse: DRUG_RISK_WH
+      schema: ANALYTICS
       authenticator: username_password_mfa
       session_parameters:
         QUERY_TAG: "oncology-pipeline"

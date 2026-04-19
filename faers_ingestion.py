@@ -9,6 +9,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, List
+from dotenv import load_dotenv
 
 import snowflake.connector
 from snowflake.connector import Error as SnowflakeError
@@ -29,6 +30,9 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger("faers_ingestion")
+
+# Load environment variables
+load_dotenv()
 
 # Configuration from environment
 SNOWFLAKE_CONFIG = {
@@ -243,4 +247,4 @@ def health_check():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8001)
