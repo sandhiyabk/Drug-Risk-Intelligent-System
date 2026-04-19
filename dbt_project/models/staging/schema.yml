@@ -1,0 +1,191 @@
+version: 2
+
+models:
+  - name: stg_faers_reports
+    description: >
+      Staging table for FAERS reports - extracts top-level fields from raw VARIANT data.
+      Uses incremental logic based on src_ld_ts to reduce warehouse costs.
+    config:
+      snowflake_warehouse: DRUG_RISK_WH
+
+    columns:
+      - name: report_id
+        description: Unique FAERS report identifier (safetyreportid)
+        tests:
+          - unique:
+              error_model: default
+              config:
+                where: "src_ld_ts > '1900-01-01'"
+          - not_null
+
+      - name: received_date
+        description: Date FAERS received the report
+        tests:
+          - not_null
+          - dbt_utils.recency_not_in_future:
+              datepart: day
+              interval: 1
+              from_date: "CURRENT_DATE()"
+              config:
+                error_model: default
+
+      - name: patient_sex
+        description: >
+            Patient sex code: 0=Male, 1=Female, 2=Unknown
+        tests:
+          - not_null
+          - accepted_values:
+              values: [0, 1, 2]
+              config:
+                error_model: default
+
+      - name: patient_age
+        description: Patient age at time of reaction (numeric value)
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: ">= 0 AND <= 120"
+              config:
+                error_model: default
+
+      - name: patient_age_years
+        description: Patient age in years
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: ">= 0 AND <= 120"
+              config:
+                error_model: default
+
+      - name: src_ld_ts
+        description: Source load timestamp for incremental processing
+        tests:
+          - not_null
+
+      - name: source_file
+        description: Source file name for traceability
+        tests:
+          - not_null
+
+    tests:
+      - dbt_utils.expression_is_true:
+          expression: "src_ld_ts IS NOT NULL"
+          config:
+            error_model: default
+
+  - name: int_report_drugs
+    description: >
+      Intermediate table - one row per drug per FAERS report.
+      Uses LATERAL FLATTEN to explode patient.drug array.
+    config:
+      snowflake_warehouse: DRUG_RISK_WH
+
+    columns:
+      - name: report_drug_id
+        description: Composite key (report_id + drug_sequence)
+        tests:
+          - unique:
+              config:
+                where: "src_ld_ts > '1900-01-01'"
+          - not_null
+
+      - name: report_id
+        description: Foreign key to stg_faers_reports
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_faers_reports')
+              field: report_id
+              config:
+                where: "src_ld_ts > '1900-01-01'"
+
+      - name: drug_name
+        description: Drug name from FAERS structure
+        tests:
+          - not_null
+
+      - name: drug_sequence
+        description: Sequence number of drug in report
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 1"
+              config:
+                error_model: default
+
+      - name: total_drugs_in_report
+        description: Total count of drugs in the report
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: ">= 1"
+              config:
+                error_model: default
+
+      - name: drug_characterization
+        description: >
+            Drug characterization code: 1=Suspect, 2=Concomitant, 3=Interaction
+        tests:
+          - accepted_values:
+              values: [1, 2, 3]
+              config:
+                error_model: default
+                enabled: "{{ target.name == 'prod' }}"
+
+      - name: received_date
+        description: Date report was received
+        tests:
+          - not_null
+          - dbt_utils.recency_not_in_future:
+              datepart: day
+              interval: 1
+              from_date: "CURRENT_DATE()"
+              config:
+                error_model: default
+
+      - name: src_ld_ts
+        description: Source load timestamp
+        tests:
+          - not_null
+
+sources:
+  - name: raw
+    description: Raw FAERS data from JSON ingestion
+    database: DRUG_INTEL_DB
+    schema: RAW
+
+    tables:
+      - name: FAERS_RAW_DATA
+        description: >
+            Raw FAERS reports stored in JSON variant format.
+            Data ingested via FastAPI ingestion pipeline.
+        columns:
+          - name: FILE_ID
+            description: Auto-incrementing file identifier
+            tests:
+              - unique
+              - not_null
+
+          - name: FILE_NAME
+            description: Source file name
+            tests:
+              - not_null
+
+          - name: INGESTION_Timestamp
+            description: Timestamp when file was ingested
+            tests:
+              - not_null
+              - dbt_utils.recency_not_in_future:
+                  datepart: day
+                  interval: 1
+                  from_date: "CURRENT_DATE()"
+                  config:
+                    error_model: default
+
+          - name: RAW_JSON
+            description: Raw JSON VARIANT containing full FAERS report
+            tests:
+              - not_null
+
+          - name: FILE_STATUS
+            description: Processing status (PENDING, PROCESSED)
+            tests:
+              - accepted_values:
+                  values: ['PENDING', 'PROCESSED']

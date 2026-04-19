@@ -1,0 +1,130 @@
+version: 2
+
+models:
+  - name: fct_risk_signals
+    description: >
+      Drug-Reaction risk signals with ROR scoring.
+      Materialized as table for high-speed dashboarding.
+      Significant signals: ROR > 2.0 AND report_count >= 50.
+    config:
+      schema: ANALYTICS
+      snowflake_warehouse: DRUG_RISK_WH
+
+    columns:
+      - name: drug_name
+        description: Drug name from FAERS
+        tests:
+          - not_null
+
+      - name: reaction_term
+        description: Adverse reaction MedDRA term
+        tests:
+          - not_null
+
+      - name: report_count
+        description: Count of reports with this drug-reaction pair (A)
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 50"
+
+      - name: B_count
+        description: Count with drug but NOT reaction
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+
+      - name: C_count
+        description: Count with reaction but NOT drug
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+
+      - name: D_count
+        description: Count with neither
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+
+      - name: ror
+        description: Reporting Odds Ratio = (A*D)/(B*C)
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: "IS NULL OR ror > 0"
+          - not_null:
+              config:
+                where: "is_significant_signal = TRUE"
+
+      - name: signal_strength
+        description: HIGH (ROR>2), ELEVATED (>1.5), BASELINE
+        tests:
+          - accepted_values:
+              values: ['HIGH', 'ELEVATED', 'BASELINE']
+
+      - name: is_significant_signal
+        description: TRUE when ROR > 2.0 AND count >= 50
+        tests:
+          - not_null
+
+    tests:
+      - dbt_utils.expression_is_true:
+          expression: "ror > 0 OR ror IS NULL"
+          config:
+            error_model: default
+
+  - name: int_drug_reaction_pairs
+    description: Cross-joined drug-reaction pairs per report
+    config:
+      snowflake_warehouse: DRUG_RISK_WH
+
+    columns:
+      - name: drug_reaction_pair_id
+        description: Composite key
+        tests:
+          - unique
+          - not_null
+
+      - name: report_id
+        description: Report foreign key
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_faers_reports')
+              field: report_id
+
+      - name: drug_name
+        tests:
+          - not_null
+
+      - name: reaction_term
+        tests:
+          - not_null
+
+  - name: int_report_reactions
+    description: One row per reaction per report
+    config:
+      snowflake_warehouse: DRUG_RISK_WH
+
+    columns:
+      - name: report_reaction_id
+        tests:
+          - unique
+          - not_null
+
+      - name: report_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_faers_reports')
+              field: report_id
+
+      - name: reaction_term
+        tests:
+          - not_null
+
+      - name: outcome_code
+        tests:
+          - accepted_values:
+              values: [1, 2, 3, 4, 5, 6]
+              config:
+                enabled: "{{ target.name == 'prod' }}"

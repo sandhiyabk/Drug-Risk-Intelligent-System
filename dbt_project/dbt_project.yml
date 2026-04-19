@@ -1,0 +1,34 @@
+name: drug_risk_pipeline
+version: '1.0.0'
+config-version: 2
+
+vars:
+  snowflake_warehouse: DRUG_RISK_WH
+  source_database: DRUG_INTEL_DB
+  source_schema: RAW
+  staging_schema: STAGING
+  analytics_schema: ANALYTICS
+
+on-run-start:
+  - "{{ log('Running Drug Risk Intelligence Pipeline - dbt transformations', info=True) }}"
+
+models:
+  drug_risk_pipeline:
+    staging:
+      +schema: STAGING
+      +materialized: table
+    intermediate:
+      +schema: STAGING
+      +materialized: incremental
+
+seeds:
+  +schema: STAGING
+  +database: DRUG_INTEL_DB
+
+tests:
+  +schema: STAGING
+  +database: DRUG_INTEL_DB
+
+snapshots:
+  +schema: STAGING
+  +database: DRUG_INTEL_DB

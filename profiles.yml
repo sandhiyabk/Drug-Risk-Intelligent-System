@@ -1,0 +1,25 @@
+config:
+  send_anonymous_usage_stats: false
+  use_experimental_parser: true
+  fail_fast: false
+
+drug_risk_pipeline:
+  target: dev
+
+  outputs:
+    dev:
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
+      user: "{{ env_var('SNOWFLAKE_USER') }}"
+      password: "{{ env_var('SNOWFLAKE_PASSWORD') }}"
+      role: ACCOUNTADMIN
+      database: ONCOLOGY_DB
+      warehouse: COMPUTE_WH
+      schema: GOLD
+      authenticator: username_password_mfa
+      session_parameters:
+        QUERY_TAG: "oncology-pipeline"
+      connect_timeout: 60
+      retry_timeout: 60
+      threads: 4
+      keep_alive: true
