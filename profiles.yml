@@ -9,17 +9,11 @@ drug_risk_pipeline:
   outputs:
     dev:
       type: snowflake
-      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
-      user: "{{ env_var('SNOWFLAKE_USER') }}"
-      password: "{{ env_var('SNOWFLAKE_PASSWORD') }}"
+      account: "rwcfeut-wb78109"
+      user: "SANDHIYABK"
+      password: "k66T4jKv_LQDHXe"
       role: ACCOUNTADMIN
       database: DRUG_INTEL_DB
-      warehouse: DRUG_RISK_WH
-      schema: ANALYTICS
-      authenticator: username_password_mfa
-      session_parameters:
-        QUERY_TAG: "oncology-pipeline"
-      connect_timeout: 60
-      retry_timeout: 60
+      warehouse: COMPUTE_WH
+      schema: STAGING
       threads: 4
-      keep_alive: true

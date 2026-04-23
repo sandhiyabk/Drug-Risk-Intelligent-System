@@ -33,10 +33,14 @@ def get_data(query):
 @app.get("/", response_class=HTMLResponse)
 def dashboard():
     try:
-        df = get_data("SELECT COUNT(*) as total, SUM(HIGH_RISK_FLAG) as high_risk, AVG(AGE) as avg_age FROM GOLD_PATIENT_RISK")
+        df = get_data("SELECT COUNT(*) as total FROM GOLD_PATIENT_RISK")
         total = int(df.iat[0, 0])
-        high_risk = int(df.iat[0, 1])
-        avg_age = round(float(df.iat[0, 2]), 1)
+        
+        df2 = get_data("SELECT COUNT(*) FROM GOLD_PATIENT_RISK WHERE RISK_LEVEL = 'HIGH_RISK'")
+        high_risk = int(df2.iat[0, 0])
+        
+        df3 = get_data("SELECT AVG(AGE) FROM GOLD_PATIENT_RISK")
+        avg_age = round(float(df3.iat[0, 0]), 1)
         
         df_c = get_data("SELECT CANCER_TYPE, COUNT(*) FROM GOLD_PATIENT_RISK GROUP BY CANCER_TYPE ORDER BY 2 DESC")
         df_r = get_data("SELECT RISK_LEVEL, COUNT(*) FROM GOLD_PATIENT_RISK GROUP BY RISK_LEVEL")

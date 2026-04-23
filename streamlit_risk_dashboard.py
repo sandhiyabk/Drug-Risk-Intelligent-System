@@ -1,94 +1,136 @@
 """
-Streamlit Dashboard - Oncology Patient Risk
-Simplified version without charts
+Streamlit Dashboard - Drug Risk Intelligence System (DRIS)
+FAERS Drug-Reaction Risk Signals
 """
 
 import streamlit as st
 import snowflake.connector
 import pandas as pd
+import altair as alt
 
 SNOWFLAKE_CONFIG = {
     "user": "SANDHIYABK",
     "password": "k66T4jKv_LQDHXe",
     "account": "rwcfeut-wb78109",
     "warehouse": "COMPUTE_WH",
-    "database": "ONCOLOGY_DB",
-    "schema": "GOLD",
+    "database": "DRUG_INTEL_DB",
+    "schema": "ANALYTICS",
 }
 
 
-def get_data(query):
+@st.cache_data(ttl=60)
+def run_query(query):
     conn = snowflake.connector.connect(**SNOWFLAKE_CONFIG)
-    df = pd.read_sql(query, conn)
-    conn.close()
+    try:
+        cur = conn.cursor()
+        cur.execute(query)
+        df = cur.fetch_pandas_all()
+    finally:
+        conn.close()
     return df
 
 
-st.set_page_config(page_title="Oncology Risk", page_icon="🧬", layout="wide")
+st.set_page_config(page_title="Drug Risk Intelligence", page_icon="💊", layout="wide")
 
-st.title("🧬 Oncology Patient Risk Dashboard")
+st.title("💊 Drug Risk Intelligence Dashboard")
+st.caption("FAERS Adverse Event Signal Detection")
 
 with st.sidebar:
-    st.caption("Data Source: ONCOLOGY_DB.GOLD")
+    st.header("Filters")
+    
+    # Risk Level Filter
+    risk_level = st.selectbox(
+        "Risk Level",
+        ["All", "HIGH", "MEDIUM", "LOW"],
+        help="Filter by risk level"
+    )
+    
+    # Min reports
+    min_reports = st.slider("Minimum Reports", 0, 100, 0)
+    
+    st.divider()
+    st.caption("Source: DRUG_INTEL_DB.ANALYTICS")
 
 try:
-    df_summary = get_data("""
-        SELECT 
-            COUNT(*) as total_patients,
-            SUM(HIGH_RISK_FLAG) as high_risk_count,
-            AVG(AGE) as avg_age
-        FROM GOLD_PATIENT_RISK
-    """)
+    # Get data with filters
+    query = f"SELECT * FROM FCT_DRUG_SUMMARY WHERE TOTAL_REPORTS >= {min_reports}"
+    df_drugs = run_query(query)
     
-    st.metric("Total Patients", int(df_summary.iloc[0]['total_patients']))
-    st.metric("High Risk", int(df_summary.iloc[0]['high_risk_count']))
-    st.metric("Avg Age", round(float(df_summary.iloc[0]['avg_age']), 1))
+    # Apply risk level filter
+    if risk_level != "All":
+        df_drugs = df_drugs[df_drugs['RISK_LEVEL'] == risk_level]
     
-    st.divider()
-    st.subheader("Cancer Type Distribution")
-    df_cancer = get_data("""
-        SELECT CANCER_TYPE, COUNT(*) as cnt 
-        FROM GOLD_PATIENT_RISK 
-        GROUP BY CANCER_TYPE 
-        ORDER BY cnt DESC
-    """)
-    
-    if not df_cancer.empty:
-        for _, row in df_cancer.iterrows():
-            st.write(f"{row['CANCER_TYPE']}: {int(row['cnt'])}")
+    # Summary metrics
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Total Drugs", len(df_drugs))
+    col2.metric("Total Reports", int(df_drugs['TOTAL_REPORTS'].sum()))
+    col3.metric("Avg Age", round(float(df_drugs['AVG_AGE'].mean()), 1))
+    col4.metric(f"{risk_level} Risk", len(df_drugs[df_drugs['RISK_LEVEL'] == risk_level]) if risk_level != "All" else len(df_drugs))
     
     st.divider()
-    st.subheader("Risk Level Distribution")
-    df_risk = get_data("""
-        SELECT RISK_LEVEL, COUNT(*) as cnt 
-        FROM GOLD_PATIENT_RISK 
-        GROUP BY RISK_LEVEL
-    """)
     
-    if not df_risk.empty:
-        for _, row in df_risk.iterrows():
-            st.write(f"{row['RISK_LEVEL']}: {int(row['cnt'])}")
+    # Color mapping for risk levels
+    risk_colors = {"HIGH": "#FF4444", "MEDIUM": "#FFAA44", "LOW": "#44AA44"}
+    
+    # Drug chart
+    st.subheader("Top Drugs by Report Count")
+    if not df_drugs.empty:
+        chart = (
+            alt.Chart(df_drugs.head(10))
+            .mark_bar()
+            .encode(
+                x=alt.X("TOTAL_REPORTS", title="Number of Reports"),
+                y=alt.Y("DRUG_NAME", sort="-x", title=None),
+                color=alt.Color("RISK_LEVEL", type="nominal", scale=alt.Scale(domain=["HIGH", "MEDIUM", "LOW"], range=["#FF4444", "#FFAA44", "#44AA44"])),
+                tooltip=["DRUG_NAME", "TOTAL_REPORTS", "AVG_AGE", "RISK_LEVEL"],
+            )
+            .properties(height=300)
+        )
+        st.altair_chart(chart, use_container_width=True)
     
     st.divider()
-    st.subheader("Patient Records")
-    df_patients = get_data("""
-        SELECT PATIENT_ID, AGE, GENDER, CANCER_TYPE, RISK_LEVEL, PRE_SCORE
-        FROM GOLD_PATIENT_RISK 
-        ORDER BY PRE_SCORE DESC 
-        LIMIT 50
-    """)
-    st.dataframe(df_patients, use_container_width=True)
+    
+    # Drug-Reaction signals
+    st.subheader("Drug-Reaction Signals")
+    df_signals = run_query("SELECT * FROM FCT_DRUG_REACTIONS ORDER BY REPORT_COUNT DESC LIMIT 50")
+    
+    if not df_signals.empty:
+        # Filter by selected risk level drugs
+        if risk_level != "All":
+            high_drugs = df_drugs[df_drugs['RISK_LEVEL'] == risk_level]['DRUG_NAME'].tolist()
+            df_signals = df_signals[df_signals['DRUG_NAME'].isin(high_drugs)]
+        
+        if not df_signals.empty:
+            chart2 = (
+                alt.Chart(df_signals.head(15))
+                .mark_bar(color="#44AAFF")
+                .encode(
+                    x=alt.X("REPORT_COUNT", title="Reports"),
+                    y=alt.Y("DRUG_NAME", sort="-x", title=None),
+                    tooltip=["DRUG_NAME", "REACTION_TERM", "REPORT_COUNT"],
+                )
+                .properties(height=300, title="Drug-Reaction Pairs")
+            )
+            st.altair_chart(chart2, use_container_width=True)
     
     st.divider()
-    st.subheader("High Risk Patients")
-    df_high = get_data("""
-        SELECT PATIENT_ID, AGE, GENDER, CANCER_TYPE, PRE_SCORE, RISK_FACTORS_DERIVED
-        FROM GOLD_PATIENT_RISK 
-        WHERE HIGH_RISK_FLAG = 1
-        ORDER BY PRE_SCORE DESC 
-        LIMIT 20
-    """)
-    st.dataframe(df_high, use_container_width=True)
+    
+    # Data table with risk level coloring
+    st.subheader("Drug Summary Table")
+    
+    # Apply filter to display
+    if risk_level != "All":
+        display_df = df_drugs[df_drugs['RISK_LEVEL'] == risk_level]
+    else:
+        display_df = df_drugs
+    
+    st.dataframe(
+        display_df.style.format({
+            'TOTAL_REPORTS': '{:,.0f}',
+            'AVG_AGE': '{:.1f}'
+        }),
+        use_container_width=True
+    )
 
 except Exception as e:
-    st.error(f"Failed: {e}")
+    st.error(f"Error: {e}")

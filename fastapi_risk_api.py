@@ -1,6 +1,6 @@
 """
-FastAPI - Oncology Patient Risk Intelligence
-Connects to ONCOLOGY_DB.GOLD schema
+FastAPI - Drug Risk Intelligence API
+Connects to DRUG_INTEL_DB.ANALYTICS_ANALYTICS schema
 """
 
 import os
@@ -10,21 +10,24 @@ from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import snowflake.connector
 from snowflake.connector import Error as SnowflakeError
+from dotenv import load_dotenv
+
+load_dotenv()
 
 SNOWFLAKE_CONFIG = {
-    "user": "SANDHIYABK",
-    "password": "k66T4jKv_LQDHXe",
-    "account": "rwcfeut-wb78109",
-    "warehouse": "COMPUTE_WH",
-    "database": "ONCOLOGY_DB",
-    "schema": "GOLD",
-    "role": "ACCOUNTADMIN",
+    "user": os.getenv("SNOWFLAKE_USER", "SANDHIYABK"),
+    "password": os.getenv("SNOWFLAKE_PASSWORD", "k66T4jKv_LQDHXe"),
+    "account": os.getenv("SNOWFLAKE_ACCOUNT", "rwcfeut-wb78109"),
+    "warehouse": os.getenv("SNOWFLAKE_WAREHOUSE", "DRUG_RISK_WH"),
+    "database": os.getenv("SNOWFLAKE_DATABASE", "DRUG_INTEL_DB"),
+    "schema": "ANALYTICS_ANALYTICS",
+    "role": os.getenv("SNOWFLAKE_ROLE", "ACCOUNTADMIN"),
 }
 
 app = FastAPI(
-    title="Oncology Risk Intelligence API",
-    description="Patient Risk Assessment API",
-    version="1.0.0",
+    title="Drug Risk Intelligence API",
+    description="FAERS Signal Detection API",
+    version="1.1.0",
 )
 
 app.add_middleware(
@@ -36,26 +39,22 @@ app.add_middleware(
 )
 
 
-class PatientRisk(BaseModel):
-    patient_id: str
-    age: Optional[int]
-    gender: Optional[str]
-    cancer_type: Optional[str]
-    risk_level: Optional[str]
-    high_risk_flag: int
-    pre_score: Optional[int]
+class RiskSignal(BaseModel):
+    drug_name: str
+    reaction_term: str
+    report_count: int
+    prr: float
+    ror: float
+    signal_strength: str
+    is_significant_signal: bool
 
 
-class PatientListResponse(BaseModel):
-    patients: List[PatientRisk]
-    count: int
-
-
-class RiskSummary(BaseModel):
-    total_patients: int
-    high_risk_count: int
-    avg_age: float
-    cancer_types: dict
+class SignalSummary(BaseModel):
+    total_pairs: int
+    high_signals: int
+    elevated_signals: int
+    total_reports: int
+    unique_drugs: int
 
 
 def get_snowflake_connection():
@@ -67,7 +66,7 @@ def get_snowflake_connection():
 
 @app.get("/")
 def read_root():
-    return {"service": "Oncology Risk API", "version": "1.0.0"}
+    return {"service": "Drug Risk API", "version": "1.1.0", "status": "active"}
 
 
 @app.get("/health")
@@ -80,58 +79,53 @@ def health_check():
         raise HTTPException(status_code=503, detail=f"Service unhealthy: {e}")
 
 
-@app.get("/patients", response_model=PatientListResponse)
-def get_patients(
-    risk_level: str = Query(None, description="Filter by risk level (LOW/MEDIUM/HIGH)"),
-    cancer_type: str = Query(None, description="Filter by cancer type"),
-    min_age: int = Query(None, ge=0, le=120, description="Minimum age"),
-    max_age: int = Query(None, ge=0, le=120, description="Maximum age"),
+@app.get("/signals", response_model=List[RiskSignal])
+def get_signals(
+    drug_name: str = Query(None, description="Filter by drug name"),
+    signal_strength: str = Query(None, description="Filter by signal strength (HIGH/ELEVATED/LOW)"),
+    min_reports: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
 ):
-    """Get patients with optional filters."""
+    """Get drug risk signals with optional filters."""
     conn = get_snowflake_connection()
     cursor = conn.cursor()
 
     try:
-        query = "SELECT PATIENT_ID, AGE, GENDER, CANCER_TYPE, RISK_LEVEL, HIGH_RISK_FLAG, PRE_SCORE FROM GOLD_PATIENT_RISK WHERE 1=1"
+        query = "SELECT DRUG_NAME, REACTION_TERM, REPORT_COUNT, PRR, ROR, SIGNAL_STRENGTH, IS_SIGNIFICANT_SIGNAL FROM FCT_RISK_SIGNALS WHERE 1=1"
         params = {}
 
-        if risk_level:
-            query += " AND UPPER(RISK_LEVEL) = UPPER(%(risk_level)s)"
-            params["risk_level"] = risk_level
+        if drug_name:
+            query += " AND UPPER(DRUG_NAME) LIKE UPPER(%(drug_name)s)"
+            params["drug_name"] = f"%{drug_name}%"
 
-        if cancer_type:
-            query += " AND UPPER(CANCER_TYPE) = UPPER(%(cancer_type)s)"
-            params["cancer_type"] = cancer_type
+        if signal_strength:
+            query += " AND UPPER(SIGNAL_STRENGTH) = UPPER(%(signal_strength)s)"
+            params["signal_strength"] = signal_strength
 
-        if min_age is not None:
-            query += " AND AGE >= %(min_age)s"
-            params["min_age"] = min_age
+        if min_reports > 0:
+            query += " AND REPORT_COUNT >= %(min_reports)s"
+            params["min_reports"] = min_reports
 
-        if max_age is not None:
-            query += " AND AGE <= %(max_age)s"
-            params["max_age"] = max_age
-
-        query += " ORDER BY PRE_SCORE DESC LIMIT %(limit)s"
+        query += " ORDER BY PRR DESC LIMIT %(limit)s"
         params["limit"] = limit
 
         cursor.execute(query, params)
         rows = cursor.fetchall()
 
-        patients = [
-            PatientRisk(
-                patient_id=row[0],
-                age=row[1],
-                gender=row[2],
-                cancer_type=row[3],
-                risk_level=row[4],
-                high_risk_flag=row[5],
-                pre_score=row[6],
+        signals = [
+            RiskSignal(
+                drug_name=row[0],
+                reaction_term=row[1],
+                report_count=row[2],
+                prr=row[3],
+                ror=row[4],
+                signal_strength=row[5],
+                is_significant_signal=bool(row[6]),
             )
             for row in rows
         ]
 
-        return PatientListResponse(patients=patients, count=len(patients))
+        return signals
 
     except SnowflakeError as e:
         raise HTTPException(status_code=500, detail=f"Query failed: {e}")
@@ -140,90 +134,31 @@ def get_patients(
         conn.close()
 
 
-@app.get("/patients/{patient_id}", response_model=PatientRisk)
-def get_patient(patient_id: str):
-    """Get a specific patient by ID."""
+@app.get("/summary", response_model=SignalSummary)
+def get_signal_summary():
+    """Get overall signal summary statistics."""
     conn = get_snowflake_connection()
     cursor = conn.cursor()
 
     try:
-        cursor.execute(
-            "SELECT PATIENT_ID, AGE, GENDER, CANCER_TYPE, RISK_LEVEL, HIGH_RISK_FLAG, PRE_SCORE FROM GOLD_PATIENT_RISK WHERE PATIENT_ID = %(patient_id)s",
-            {"patient_id": patient_id},
-        )
+        cursor.execute("""
+            SELECT 
+                COUNT(*), 
+                SUM(CASE WHEN SIGNAL_STRENGTH='HIGH' THEN 1 ELSE 0 END),
+                SUM(CASE WHEN SIGNAL_STRENGTH='ELEVATED' THEN 1 ELSE 0 END),
+                SUM(REPORT_COUNT),
+                COUNT(DISTINCT DRUG_NAME)
+            FROM FCT_RISK_SIGNALS
+        """)
         row = cursor.fetchone()
 
-        if not row:
-            raise HTTPException(status_code=404, detail=f"Patient {patient_id} not found")
-
-        return PatientRisk(
-            patient_id=row[0],
-            age=row[1],
-            gender=row[2],
-            cancer_type=row[3],
-            risk_level=row[4],
-            high_risk_flag=row[5],
-            pre_score=row[6],
+        return SignalSummary(
+            total_pairs=row[0] or 0,
+            high_signals=row[1] or 0,
+            elevated_signals=row[2] or 0,
+            total_reports=row[3] or 0,
+            unique_drugs=row[4] or 0,
         )
-
-    except SnowflakeError as e:
-        raise HTTPException(status_code=500, detail=f"Query failed: {e}")
-    finally:
-        cursor.close()
-        conn.close()
-
-
-@app.get("/summary", response_model=RiskSummary)
-def get_risk_summary():
-    """Get overall risk summary statistics."""
-    conn = get_snowflake_connection()
-    cursor = conn.cursor()
-
-    try:
-        cursor.execute("SELECT COUNT(*), SUM(HIGH_RISK_FLAG), AVG(AGE) FROM GOLD_PATIENT_RISK")
-        row = cursor.fetchone()
-
-        cursor.execute("SELECT CANCER_TYPE, COUNT(*) FROM GOLD_PATIENT_RISK GROUP BY CANCER_TYPE")
-        cancer_counts = {r[0]: r[1] for r in cursor.fetchall() if r[0]}
-
-        return RiskSummary(
-            total_patients=row[0],
-            high_risk_count=row[1] or 0,
-            avg_age=round(row[2] or 0, 1),
-            cancer_types=cancer_counts,
-        )
-
-    except SnowflakeError as e:
-        raise HTTPException(status_code=500, detail=f"Query failed: {e}")
-    finally:
-        cursor.close()
-        conn.close()
-
-
-@app.get("/high-risk")
-def get_high_risk_patients(limit: int = Query(50, ge=1, le=500)):
-    """Get high risk patients."""
-    conn = get_snowflake_connection()
-    cursor = conn.cursor()
-
-    try:
-        cursor.execute(
-            "SELECT PATIENT_ID, AGE, GENDER, CANCER_TYPE, PRE_SCORE, RISK_FACTORS_DERIVED FROM GOLD_PATIENT_RISK WHERE HIGH_RISK_FLAG = 1 ORDER BY PRE_SCORE DESC LIMIT %(limit)s",
-            {"limit": limit},
-        )
-        rows = cursor.fetchall()
-
-        return [
-            {
-                "patient_id": r[0],
-                "age": r[1],
-                "gender": r[2],
-                "cancer_type": r[3],
-                "pre_score": r[4],
-                "risk_factors": r[5],
-            }
-            for r in rows
-        ]
 
     except SnowflakeError as e:
         raise HTTPException(status_code=500, detail=f"Query failed: {e}")

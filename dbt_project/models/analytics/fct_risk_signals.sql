@@ -108,14 +108,14 @@ ror_calc AS (
 
         -- PRR = (A / (A+B)) / (C / (C+D))
         CASE
-            WHEN (a.A_count + b.B_count) > 0 AND (c.C_count + d.D_count) > 0
+            WHEN (a.A_count + b.B_count) > 0 AND (c.C_count + d.D_count) > 0 AND c.C_count > 0
             THEN (a.A_count * 1.0 / (a.A_count + b.B_count)) / (c.C_count * 1.0 / (c.C_count + d.D_count))
             ELSE NULL
         END AS prr,
 
         -- Simplified ROR when denominator > 0
         CASE
-            WHEN b.B_count > 0 AND c.C_count > 0
+            WHEN b.B_count > 0 AND c.C_count > 0 AND d.D_count > 0
             THEN (a.A_count * 1.0 / b.B_count) / (c.C_count * 1.0 / d.D_count)
             ELSE NULL
         END AS ror_simple

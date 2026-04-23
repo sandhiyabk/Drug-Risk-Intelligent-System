@@ -26,11 +26,15 @@ drugs_flat AS (
         s.patient_age,
         s.src_ld_ts,
         s.src_ld_date,
-        f.VALUE:drgname::VARCHAR AS drug_name,
+        COALESCE(
+            f.VALUE:drgname::VARCHAR,
+            f.VALUE:medicinalproduct::VARCHAR,
+            f.VALUE:medicinalproductname::VARCHAR
+        ) AS drug_name,
         f.VALUE:drgcode[0].value::VARCHAR AS drug_code,
         f.VALUE:drgcode[0].codingSystem::VARCHAR AS drug_coding_system,
         f.VALUE:activesubstancename::VARCHAR AS active_substance_name,
-        f.VALUE:medicinalproductname::VARCHAR AS medicinal_product_name,
+        f.VALUE:medicinalproduct::VARCHAR AS medicinal_product_name,
         f.VALUE:drugcharacterization::NUMBER(1, 0) AS drug_characterization,
         f.VALUE:drugdosageform::VARCHAR AS drug_dosage_form,
         f.VALUE:drugdosage::VARCHAR AS drug_dosage_text,

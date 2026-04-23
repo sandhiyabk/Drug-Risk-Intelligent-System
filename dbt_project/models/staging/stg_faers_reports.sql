@@ -14,10 +14,13 @@ WITH source AS (
             RAW_JSON:safetyreport[0].safetyreportid::VARCHAR,
             RAW_JSON:safetyreport[0].id::VARCHAR
         ) AS report_id,
-        RAW_JSON:safetyreport[0].receivedate::DATE AS received_date,
-        RAW_JSON:safetyreport[0].receivedate.receptiondate::DATE AS reception_date,
+        COALESCE(
+            TRY_TO_DATE(RAW_JSON:safetyreport[0].receivedate::VARCHAR, 'YYYYMMDD'),
+            TRY_TO_DATE(RAW_JSON:safetyreport[0].receivedate::VARCHAR, 'YYYY-MM-DD')
+        ) AS received_date,
+        TRY_TO_DATE(RAW_JSON:safetyreport[0].receivedate.receptiondate::VARCHAR, 'YYYYMMDD') AS reception_date,
         RAW_JSON:safetyreport[0].safetyreportversion::NUMBER(3, 0) AS safety_report_version,
-        RAW_JSON:safetyreport[0].transmissiondate::DATE AS transmission_date,
+        TRY_TO_DATE(RAW_JSON:safetyreport[0].transmissiondate::VARCHAR, 'YYYYMMDD') AS transmission_date,
         RAW_JSON:safetyreport[0].patient[0].age[0].value::NUMBER(5, 2) AS patient_age,
         RAW_JSON:safetyreport[0].patient[0].age[0].agedays::NUMBER(6, 0) AS patient_age_days,
         RAW_JSON:safetyreport[0].patient[0].age[0].ageyears::NUMBER(4, 0) AS patient_age_years,
