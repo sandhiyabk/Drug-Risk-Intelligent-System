@@ -20,7 +20,7 @@ SNOWFLAKE_CONFIG = {
     "account": os.getenv("SNOWFLAKE_ACCOUNT", "chizcdk-zm51873"),
     "warehouse": os.getenv("SNOWFLAKE_WAREHOUSE", "DRUG_RISK_WH"),
     "database": os.getenv("SNOWFLAKE_DATABASE", "DRUG_INTEL_DB"),
-    "schema": "ANALYTICS_ANALYTICS",
+    "schema": "ANALYTICS",
     "role": os.getenv("SNOWFLAKE_ROLE", "ACCOUNTADMIN"),
 }
 
