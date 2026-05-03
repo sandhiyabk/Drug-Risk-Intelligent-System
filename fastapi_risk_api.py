@@ -16,8 +16,8 @@ load_dotenv()
 
 SNOWFLAKE_CONFIG = {
     "user": os.getenv("SNOWFLAKE_USER", "SANDHIYABK"),
-    "password": os.getenv("SNOWFLAKE_PASSWORD", "k66T4jKv_LQDHXe"),
-    "account": os.getenv("SNOWFLAKE_ACCOUNT", "rwcfeut-wb78109"),
+    "password": os.getenv("SNOWFLAKE_PASSWORD", "9jcwpx9kGwfyAC6"),
+    "account": os.getenv("SNOWFLAKE_ACCOUNT", "chizcdk-zm51873"),
     "warehouse": os.getenv("SNOWFLAKE_WAREHOUSE", "DRUG_RISK_WH"),
     "database": os.getenv("SNOWFLAKE_DATABASE", "DRUG_INTEL_DB"),
     "schema": "ANALYTICS_ANALYTICS",

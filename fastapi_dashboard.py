@@ -11,8 +11,8 @@ app = FastAPI(title="Oncology Risk Dashboard")
 
 SNOWFLAKE_CONFIG = {
     "user": "SANDHIYABK",
-    "password": "k66T4jKv_LQDHXe",
-    "account": "rwcfeut-wb78109",
+    "password": "9jcwpx9kGwfyAC6",
+    "account": "chizcdk-zm51873",
     "warehouse": "COMPUTE_WH",
     "database": "ONCOLOGY_DB",
     "schema": "GOLD",
